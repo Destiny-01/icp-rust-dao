@@ -1,4 +1,7 @@
-# icp_rust_message_board_contract
+# ICP Rust DAO
+This is a simple DAO app that a user can create proposals and members can vote on the proposals created. The result of the votes after 7 days is the final result of the proposal and no further changes or votes can be made
+
+Follow the instruction below to run 
 
 ### Requirements
 * rustc 1.64 or higher
