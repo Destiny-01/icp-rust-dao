@@ -1,0 +1,37 @@
+type Error = variant {
+  DeadlineExceeded : record { msg : text };
+  CantVoteYours : record { msg : text };
+  NotFound : record { msg : text };
+  HasVoted : record { msg : text };
+  CantEditProposal : record { msg : text };
+};
+type Proposal = record {
+  id : nat64;
+  upvotes : vec principal;
+  title : text;
+  updated_at : opt nat64;
+  is_approved : bool;
+  owner : opt principal;
+  amount_requested : nat64;
+  deadline : nat64;
+  created_at : nat64;
+  details : text;
+  downvotes : vec principal;
+};
+type ProposalPayload = record {
+  title : text;
+  amount_requested : nat64;
+  details : text;
+};
+type Result = variant { Ok : Proposal; Err : Error };
+type Result_1 = variant { Ok : vec Proposal; Err : Error };
+service : {
+  add_proposal : (ProposalPayload) -> (opt Proposal);
+  delete_proposal : (nat64) -> (Result);
+  downvote : (nat64) -> (Result);
+  get_all_proposals : () -> (Result_1) query;
+  get_approved_proposals : () -> (Result_1) query;
+  get_proposal : (nat64) -> (Result) query;
+  update_proposal : (nat64, ProposalPayload) -> (Result);
+  upvote : (nat64) -> (Result);
+}
