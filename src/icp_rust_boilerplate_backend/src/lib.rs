@@ -15,7 +15,7 @@ struct Proposal {
     title: String,
     details: String,
     amount_requested: u64,
-    owner: Option<Principal>,
+    owner: Option<Principal>, 
     upvotes: Vec<Principal>,
     downvotes: Vec<Principal>,
     is_approved: bool,
@@ -110,7 +110,7 @@ fn get_approved_proposals() -> Result<Vec<Proposal>, Error> {
             continue;
         }
     }
-
+ 
     Ok(proposals)
 }
 
@@ -133,7 +133,7 @@ fn add_proposal(proposal: ProposalPayload) -> Option<Proposal> {
         amount_requested: proposal.amount_requested,
         owner: Some(caller()),
         created_at: time(),
-        deadline: time() + (7 * 24 * 60 * 60 * 1_000_000_000),
+        deadline: time() + (7 * 24 * 60 * 60 * 1_000_000_000), // one week
         updated_at: None,
         upvotes,
         is_approved: false,
@@ -175,43 +175,49 @@ fn update_proposal(id: u64, payload: ProposalPayload) -> Result<Proposal, Error>
     }
 }
 
-// Ability to upvote a proposal provided you're not the owner, you haven't voted and the deadline hasn't passed
+// Ability to update a proposal provided you're the owner and the deadline hasn't passed
 #[ic_cdk::update]
-fn upvote(id: u64) -> Result<Proposal, Error> {
+fn end_proposal_vote(id: u64) -> Result<Proposal, Error> {
     match STORAGE.with(|service| service.borrow().get(&id)) {
         Some(mut proposal) => {
             if proposal.owner.is_some() && proposal.owner != Some(caller()) {
-                return Err(Error::CantVoteYours {
-                    msg: format!("Couldn't vote on a proposal with id={} because you created the proposal", id),
+                return Err(Error::CantEditProposal {
+                    msg: format!("Couldn't update proposal with id={}. You are not the owner", id),
                 });
             }
-
-            let has_upvoted = proposal.upvotes.iter().position(|&user| user.to_string() == caller().to_string());
-            let has_downvoted = proposal.downvotes.iter().position(|&user| user.to_string() == caller().to_string());
-            if has_upvoted.is_some() {
-                return Err(Error::HasVoted {
-                    msg: format!("Couldn't vote on a proposal with id={}. user voted already", id),
-                });
-            }
-            if has_downvoted.is_some() {
-                return Err(Error::HasVoted {
-                    msg: format!("Couldn't vote on a proposal with id={}. user voted already", id),
-                });
-            }
-
-            if _has_deadline_passed(proposal.deadline) {
+            if !_has_deadline_passed(proposal.deadline) {
                 return Err(Error::DeadlineExceeded {
-                    msg: format!("Couldn't vote on a proposal with id={}. Deadline exceeded", id),
+                    msg: format!("Voting period for proposal with id={} isn't over.", id),
                 });
             }
-            proposal.upvotes.push(caller());
-            
             let total_votes = proposal.downvotes.len() - proposal.upvotes.len();
             if total_votes > 0 {
                 proposal.is_approved = true;
             } else {
                 proposal.is_approved = false;
             }
+            do_insert(&proposal);
+            Ok(proposal)
+        }
+        None => Err(Error::NotFound {
+            msg: format!(
+                "couldn't update a proposal with id={}. proposal not found",
+                id
+            ),
+        }),
+    }
+}
+
+// Ability to upvote a proposal provided you're not the owner, you haven't voted and the deadline hasn't passed
+#[ic_cdk::update]
+fn upvote(id: u64) -> Result<Proposal, Error> {
+    match STORAGE.with(|service| service.borrow().get(&id)) {
+        Some(mut proposal) => {
+            let can_vote = _check_if_can_vote(&proposal);
+            if can_vote.is_err() {
+                return Err(can_vote.unwrap_err());
+            }
+            proposal.upvotes.push(caller());
             do_insert(&proposal);
             Ok(proposal)
         }
@@ -229,38 +235,11 @@ fn upvote(id: u64) -> Result<Proposal, Error> {
 fn downvote(id: u64) -> Result<Proposal, Error> {
     match STORAGE.with(|service| service.borrow().get(&id)) {
         Some(mut proposal) => {
-            if proposal.owner.is_some() && proposal.owner != Some(caller()) {
-                return Err(Error::CantVoteYours {
-                    msg: format!("Couldn't vote on a proposal with id={} because you created the proposal", id),
-                });
+            let can_vote = _check_if_can_vote(&proposal);
+            if can_vote.is_err() {
+                return Err(can_vote.unwrap_err());
             }
-
-            let has_upvoted = proposal.upvotes.iter().position(|&user| user.to_string() == caller().to_string());
-            let has_downvoted = proposal.downvotes.iter().position(|&user| user.to_string() == caller().to_string());
-            if has_upvoted.is_some() {
-                return Err(Error::HasVoted {
-                    msg: format!("Couldn't vote on a proposal with id={}. user voted already", id),
-                });
-            }
-            if has_downvoted.is_some() {
-                return Err(Error::HasVoted {
-                    msg: format!("Couldn't vote on a proposal with id={}. user voted already", id),
-                });
-            }
-            if _has_deadline_passed(proposal.deadline) {
-                return Err(Error::DeadlineExceeded {
-                    msg: format!("Couldn't vote on a proposal with id={}. Deadline exceeded", id),
-                });
-            }
-
             proposal.downvotes.push(caller());
-            
-            let total_votes = proposal.downvotes.len() - proposal.upvotes.len();
-            if total_votes > 0 {
-                proposal.is_approved = true;
-            } else {
-                proposal.is_approved = false;
-            }
             do_insert(&proposal);
             Ok(proposal)
         }
@@ -276,18 +255,19 @@ fn downvote(id: u64) -> Result<Proposal, Error> {
 // Ability to delete proposal provided you're the owner and the deadline hasn't passed
 #[ic_cdk::update]
 fn delete_proposal(id: u64) -> Result<Proposal, Error> {
+    let proposal = _get_proposal(&id).expect("Proposal not found");
+    if proposal.owner.is_some() && proposal.owner != Some(caller()) {
+        return Err(Error::CantEditProposal {
+            msg: format!("Couldn't delete a proposal with id={}. You are not the owner", id),
+        });
+    }
+    if _has_deadline_passed(proposal.deadline) {
+        return Err(Error::DeadlineExceeded {
+            msg: format!("Couldn't delete a proposal with id={}. Deadline exceeded", id),
+        });
+    }
     match STORAGE.with(|service| service.borrow_mut().remove(&id)) {
         Some(proposal) =>{
-            if proposal.owner.is_some() && proposal.owner != Some(caller()) {
-                return Err(Error::CantEditProposal {
-                    msg: format!("Couldn't delete a proposal with id={}. You are not the owner", id),
-                });
-            }
-            if _has_deadline_passed(proposal.deadline) {
-                return Err(Error::DeadlineExceeded {
-                    msg: format!("Couldn't delete a proposal with id={}. Deadline exceeded", id),
-                });
-            }
             Ok(proposal)
         },
         None => Err(Error::NotFound {
@@ -322,6 +302,35 @@ fn _get_proposal(id: &u64) -> Option<Proposal> {
 // a helper method to check if a proposal deadline has passed
 fn _has_deadline_passed(deadline: u64) -> bool {
     time() > deadline
+}
+
+fn _check_if_can_vote(proposal: &Proposal) -> Result<(), Error>{
+    if proposal.owner.is_some() && proposal.owner == Some(caller()) {
+        return Err(Error::CantVoteYours {
+            msg: format!("Couldn't vote on a proposal with id={} because you created the proposal", proposal.id),
+        });
+    }
+
+    let has_upvoted = proposal.upvotes.iter().position(|&user| user.to_string() == caller().to_string());
+    if has_upvoted.is_some() {
+        return Err(Error::HasVoted {
+            msg: format!("Couldn't vote on a proposal with id={}. user voted already", proposal.id),
+        });
+    }
+    let has_downvoted = proposal.downvotes.iter().position(|&user| user.to_string() == caller().to_string());
+    if has_downvoted.is_some() {
+        return Err(Error::HasVoted {
+            msg: format!("Couldn't vote on a proposal with id={}. user voted already", proposal.id),
+        });
+    }
+
+    if _has_deadline_passed(proposal.deadline) {
+        return Err(Error::DeadlineExceeded {
+            msg: format!("Couldn't vote on a proposal with id={}. Deadline exceeded", proposal.id),
+        });
+    }
+
+    Ok(())
 }
 
 // need this to generate candid
