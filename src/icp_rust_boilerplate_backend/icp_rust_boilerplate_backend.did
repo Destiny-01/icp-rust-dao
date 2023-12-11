@@ -29,6 +29,7 @@ service : {
   add_proposal : (ProposalPayload) -> (opt Proposal);
   delete_proposal : (nat64) -> (Result);
   downvote : (nat64) -> (Result);
+  end_proposal_vote : (nat64) -> (Result);
   get_all_proposals : () -> (Result_1) query;
   get_approved_proposals : () -> (Result_1) query;
   get_proposal : (nat64) -> (Result) query;
