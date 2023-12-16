@@ -1,9 +1,35 @@
+type Comment = record {
+  id : nat64;
+  updated_at : opt nat64;
+  content : text;
+  created_at : nat64;
+  author : opt principal;
+  likes : vec principal;
+  proposal_id : nat64;
+};
+type CommentPayload = record { content : text; proposal_id : nat64 };
+type Dao = record {
+  id : nat64;
+  updated_at : opt nat64;
+  members : vec principal;
+  owner : opt principal;
+  name : text;
+  description : text;
+  created_at : nat64;
+  proposals : vec nat64;
+  avatar : text;
+};
+type DaoPayload = record { name : text; description : text; avatar : text };
 type Error = variant {
   DeadlineExceeded : record { msg : text };
+  CantLikeYours : record { msg : text };
   CantVoteYours : record { msg : text };
   NotFound : record { msg : text };
   HasVoted : record { msg : text };
+  NotAMember : record { msg : text };
+  DeadlineNotExceeded : record { msg : text };
   CantEditProposal : record { msg : text };
+  PermissionError : record { msg : text };
 };
 type Proposal = record {
   id : nat64;
@@ -11,27 +37,45 @@ type Proposal = record {
   title : text;
   updated_at : opt nat64;
   is_approved : bool;
+  dao_id : nat64;
   owner : opt principal;
   amount_requested : nat64;
   deadline : nat64;
   created_at : nat64;
   details : text;
   downvotes : vec principal;
+  comments : vec nat64;
 };
 type ProposalPayload = record {
   title : text;
+  dao_id : nat64;
   amount_requested : nat64;
   details : text;
 };
 type Result = variant { Ok : Proposal; Err : Error };
-type Result_1 = variant { Ok : vec Proposal; Err : Error };
+type Result_1 = variant { Ok : Comment; Err : Error };
+type Result_2 = variant { Ok : Dao; Err : Error };
+type Result_3 = variant { Ok : vec Comment; Err : Error };
+type Result_4 = variant { Ok : vec Proposal; Err : Error };
+type Result_5 = variant { Ok : vec Dao; Err : Error };
 service : {
-  add_proposal : (ProposalPayload) -> (opt Proposal);
+  add_proposal : (ProposalPayload) -> (Result);
+  comment_on_post : (CommentPayload) -> (Result_1);
+  create_dao : (DaoPayload) -> (opt Dao);
+  delete_comment : (nat64) -> (Result_1);
+  delete_dao : (nat64) -> (Result_2);
   delete_proposal : (nat64) -> (Result);
   downvote : (nat64) -> (Result);
-  get_all_proposals : () -> (Result_1) query;
-  get_approved_proposals : () -> (Result_1) query;
+  end_proposal_vote : (nat64) -> (Result);
+  get_all_comments_on_proposal : (nat64, nat64) -> (Result_3) query;
+  get_all_proposals : (nat64) -> (Result_4) query;
+  get_dao : (nat64) -> (Result_2) query;
+  get_final_approved_proposals : (nat64) -> (Result_4) query;
   get_proposal : (nat64) -> (Result) query;
+  get_user_daos : () -> (Result_5) query;
+  like_comment : (nat64, nat64) -> (Result_1);
+  update_comment : (nat64, CommentPayload) -> (Result_1);
+  update_dao : (nat64, DaoPayload) -> (Result_2);
   update_proposal : (nat64, ProposalPayload) -> (Result);
   upvote : (nat64) -> (Result);
 }
